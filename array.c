@@ -7,20 +7,21 @@
 
 #include "array.h"
 
-
-array_t* create_array() {
+array_t* array_create() {
     array_t* array = (array_t*) calloc(1, sizeof(array_t));
     if (!array)
         return NULL;
 
     array->array = (char**) calloc(1, sizeof(char*));
-    if (!array->array)
+    if (!array->array) {
+        free(array);
         return NULL;
+    }
 
     return array;
 }
 
-void arrfree(array_t* array) {
+void array_free(array_t* array) {
     if (!array) return;
 
     for (size_t i = 0; i < array->amount_of_blocks; i++) {
@@ -31,8 +32,8 @@ void arrfree(array_t* array) {
     free(array);
 }
 
-int set_char(array_t* array, char c, size_t index) {
-    if (index >= array->max_size)
+int array_setc(array_t* array, char c, size_t index) {
+    if (!array || index >= array->size)
         return SET_ERROR;
 
     size_t block = index / BLOCK_SIZE;
@@ -43,7 +44,10 @@ int set_char(array_t* array, char c, size_t index) {
     return SET_SUCCESS;
 }
 
-int add_new_block(array_t* array) {
+int array_add_new_block(array_t* array) {
+    if (!array)
+        return BLOCK_ADD_ERROR;
+
     char *block = (char*) calloc(BLOCK_SIZE, sizeof(char));
     if (!block)
         return BLOCK_ADD_ERROR;
@@ -61,21 +65,15 @@ int add_new_block(array_t* array) {
     return BLOCK_ADD_SUCCESS;
 }
 
-int char_append(array_t* array, char data) {
+int array_append_ch(array_t* array, char data) {
     if (!array)
         return APPEND_ERROR;
     
-    if (array->size + 1 >= array->max_size) {
-        int block_add_result = add_new_block(array);
+    // If we need a new block
+    if (array->size >= array->max_size) {
+        int block_add_result = array_add_new_block(array);
         if (block_add_result != BLOCK_ADD_SUCCESS)
             return APPEND_ERROR;
-
-        size_t current_block = array->size / BLOCK_SIZE;
-        size_t block_index = array->size % BLOCK_SIZE;
-
-        array->array[current_block][block_index] = data;
-
-        return APPEND_SUCCESS;
     }
 
     size_t current_block = array->size / BLOCK_SIZE;
@@ -87,7 +85,7 @@ int char_append(array_t* array, char data) {
     return APPEND_SUCCESS;
 }
 
-int set_block(array_t* array, char *new_block, size_t block_index) {
+int array_set_block(array_t* array, char *new_block, size_t block_index) {
     if (!array || !new_block || block_index >= array->amount_of_blocks)
         return BLOCK_SET_ERROR;
 
@@ -104,7 +102,7 @@ int set_block(array_t* array, char *new_block, size_t block_index) {
     return BLOCK_SET_SUCCESS;
 }
 
-char* get_block(array_t* array, size_t block_index) {
+char* array_get_block(array_t* array, size_t block_index) {
     if (!array || block_index >= array->amount_of_blocks)
         return NULL;
 
@@ -118,6 +116,32 @@ char* get_block(array_t* array, size_t block_index) {
     return block;
 }
 
+char array_getc(array_t* array, size_t position) {
+    if (!array || position >= array->size)
+        return '\0';
+
+    size_t block = position / BLOCK_SIZE;
+    size_t index_at_block = position % BLOCK_SIZE;
+
+    return array->array[block][index_at_block];
+}
+
+char* array_getstr(array_t* array, size_t position) {
+    if (!array || position >= array->size)
+        return NULL;
+
+    size_t remaining = array->size - position;
+    char* str = malloc(remaining + 1);
+    if (!str)
+        return NULL;
+
+    for (size_t i = 0; i < remaining; i++) {
+        str[i] = array_getc(array, position + i);
+    }
+    str[remaining] = '\0';
+
+    return str;
+}
 
 
 

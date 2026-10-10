@@ -24,20 +24,20 @@ typedef struct {
     char **array;
 } array_t;
 
-array_t* create_array();
+array_t* array_create();
 
-int char_append(array_t* array, char data);
+int array_append_ch(array_t* array, char data);
 
-int set_char(array_t* array, char c, size_t index);
-int set_block(array_t* array, char *new_block, size_t block_index);
+int array_setc(array_t* array, char c, size_t index);
+int array_set_block(array_t* array, char *new_block, size_t block_index);
 
-int add_new_block(array_t* array);
+int array_add_new_block(array_t* array);
 
-char getc_by_pos(array_t* array, size_t position);
-char* getstr_by_pos(array_t* array, size_t position);
-char* get_block(array_t* array, size_t block);
+char array_getc(array_t* array, size_t position);
+char* array_getstr(array_t* array, size_t position);
+char* array_get_block(array_t* array, size_t block);
 
-void arrfree(array_t* array);
+void array_free(array_t* array);
 
 
 

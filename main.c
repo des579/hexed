@@ -1,4 +1,5 @@
 #include <stdio.h>
+
 #include <stdlib.h>
 #include <curses.h>
 #include <stdbool.h>
@@ -6,290 +7,207 @@
 #include <ctype.h>
 
 #include "array.h"
-#include "file.h"
+// #include "file.h"
+#include "defines.h"
 
-#define ADDRESSES_COLUMNS 8
-#define DATA_PER_ROW 16
+// global macro (used for every window)
+#define ROW_AMOUNT 21
 
-#define HEX_COLUMNS (DATA_PER_ROW*3) // 2 for HEX, 1 for ' '
-#define HEX_ROWS 21
+// hexadecimal window
+#define HEXBYTESWIN_HEX_IN_ROW 8
+#define HEXBYTESWIN_ROW_SIZE (HEXBYTESWIN_HEX_IN_ROW * 2 + HEXBYTESWIN_HEX_IN_ROW -1)
 
-#define WINDOW_COLUMNS (ADDRESSES_COLUMNS + 3 + HEX_COLUMNS + 1 + DATA_PER_ROW)
-#define WINDOW_ROWS 21
+// window representing current amount of bytes (the left window)
+// will use uint64_t to represent the size
+#define SIZEWIN_ROW_SIZE (8*2) // 8*2 hex amount of uint64_t
 
-#define FIRST_LINE_OFFSET 9 
-#define SECOND_LINE_OFFSET (WINDOW_COLUMNS - 1 - DATA_PER_ROW)
-#define HEX_WINDOW_OFFSET 11
+// vertical line
+#define VERTICALWIN_ROW_SIZE 1 // just the character '|'
 
-#define HEX_WINDOW_BOTTOM_RIGHT (DATA_PER_ROW * 2 * HEX_ROWS)
+// offsets for each window
+#define SIZEWIN_OFFSET 0
+#define VERTICALWIN_OFFSET_LEFT (SIZEWIN_ROW_SIZE + SIZEWIN_OFFSET + 1)
+#define HEXBYTESWIN_OFFSET (VERTICALWIN_OFFSET_LEFT + VERTICALWIN_ROW_SIZE + 1)
+#define VERTICALWIN_OFFSET_RIGHT (HEXBYTESWIN_OFFSET + HEXBYTESWIN_ROW_SIZE + 1)
 
 
+
+typedef struct {
+    int x;
+    int y;
+} position_t;
+
+position_t align_position(position_t pos, int maxx, int maxy);
+position_t translate_to_hexwin(position_t pos);
+
+int map_arrow_key_binds(int ch, position_t* offset);
+size_t position_to_size(position_t position, float x_unit, float y_unit);
 
 void update_array(array_t* array, FILE* fptr, size_t file_position);
-
 void char_to_hex(int c, char hex[2]);
 void size_t_to_hex4(size_t value, char output[9]);
-
-void wprint_line(WINDOW* window, char* data);
-void wprint_adresses(WINDOW* window, size_t position);
-void wprint_file(WINDOW* window, array_t* hex_data, size_t position);
-void wprint_separate_line(WINDOW* window);
-
-void update_cursor_position(int* cursor_position);
-
-void wmove_cursor(WINDOW* window, int cursor_position);
-
-size_t get_file_position(int cursor_position, size_t current_file_position);
-
-int map_buttons(int ch, array_t* array, int cursor_position);
-void map_arrow_key_binds(int ch, int* cursor_position);
-
-
 
 
 int main(int argc, char** argv) {
     if (argc != 2) {
-        printf("PLS CONSIDER USING AS ARG FILENAME!!\nNO OTHER ARGS\n");
+        printf("Usage: 'hexed <filename>/<options>'\nSee 'hexed --help' for help\n");
         return 0;
     }
 
+    
     char* filename = argv[1];
     FILE* fptr = fopen(filename, "r+b");
     if (!fptr)
         fptr = fopen(filename, "w+b");
 
-    int cursor_position = 0;
-    size_t file_position = 0;
 
-    array_t* hex_data = create_array();
+    // array to save changes
+    array_t* hex_data = array_create();
 
-
+    // curses initialization shit
     initscr();
     keypad(stdscr, TRUE);
     noecho();
     cbreak();
 
-    WINDOW *hex_window = newwin(HEX_ROWS, HEX_COLUMNS, 0, HEX_WINDOW_OFFSET);
-    WINDOW *terminal_window = newwin(WINDOW_ROWS, WINDOW_COLUMNS, 0, 0); 
+    // windows
+    WINDOW *hexwin = newwin(HEXBYTESWIN_ROW_SIZE, ROW_AMOUNT, 0, HEXBYTESWIN_OFFSET);
+    WINDOW *vertwin_left = newwin(VERTICALWIN_ROW_SIZE, ROW_AMOUNT, 0, VERTICALWIN_OFFSET_LEFT);
+    WINDOW *vertwin_right = newwin(VERTICALWIN_ROW_SIZE, ROW_AMOUNT, 0, VERTICALWIN_OFFSET_RIGHT);
+    WINDOW *sizewin = newwin(SIZEWIN_ROW_SIZE, ROW_AMOUNT, 0, SIZEWIN_OFFSET);
+
+
+    // the screen cursor position and global cursor position
+    position_t cursor_position = {0, 0};
+    position_t global_cursor_position = {0, 0};
+    // array buffer and file position
+    size_t file_position = 0;
 
     int ch = 0;
     do {
-        int global_cursor_position = 2 * file_position + cursor_position;
-        if (map_buttons(ch, hex_data, global_cursor_position) == 0) {
-            cursor_position++;
-            add_new_change(global_cursor_position, ch);
+        position_t new_position_offset; // used for map_arrow_key_binds
+
+        // if hexadecimal, put the byte there
+        // translate position_t to index on array, update the array
+        // if arrow, change position depending on what arrow is it
+
+        // hexadecimal
+        if (isxdigit((unsigned char) ch)) {
+            if (isalpha(ch))
+                ch = toupper(ch);
+            // setting the char to array
+            size_t index = position_to_size(cursor_position, 0.5, 1);
+            array_setc(hex_data, ch, index);
+
+            cursor_position.x++;
         }
 
-        map_arrow_key_binds(ch, &cursor_position);
-        file_position = get_file_position(cursor_position, file_position);
+        // arrows
+        else if (map_arrow_key_binds(ch, &new_position_offset) == ISUCCESS) {
+            // change the cursor_position
+            cursor_position.x += new_position_offset.x;
+            cursor_position.y += new_position_offset.y;
+        }
+        
+        // aligning the position
+        
+        // translate to global
 
-        wmove(terminal_window, 0, 0);
-        wprint_adresses(terminal_window, file_position);
-        wmove(terminal_window, 0, FIRST_LINE_OFFSET);
-        wprint_separate_line(terminal_window);
-        wmove(terminal_window, 0, SECOND_LINE_OFFSET);
-        wprint_separate_line(terminal_window);
 
-        update_array(hex_data, fptr, file_position);
-        wprint_file(hex_window, hex_data, file_position);
-
-        update_cursor_position(&cursor_position);
-
-        wmove_cursor(hex_window, cursor_position);
+//         wmove_cursor(hexwin, cursor_position);
     } while ((ch = getch()) != 'q');
 
 
-    delwin(terminal_window);
-    delwin(hex_window);
+    delwin(hexwin);
+    delwin(vertwin_right);
+    delwin(vertwin_left);
+    delwin(sizewin);
+
     endwin();
-
     clear();
-
-    save_array(hex_data, fptr);
-
-    free_changes();
-    arrfree(hex_data);
+//     save_array(hex_data, fptr);
+    array_free(hex_data);
     if (fptr)
         fclose(fptr);
 
     return 0;
 }
 
-int map_buttons(int ch, array_t* array, int cursor_position) {
-    if (ch == '0') {
-        // handle 0
-    } else if (ch == '1') {
-        // handle 1
-    } else if (ch == '2') {
-        // handle 2
-    } else if (ch == '3') {
-        // handle 3
-    } else if (ch == '4') {
-        // handle 4
-    } else if (ch == '5') {
-        // handle 5
-    } else if (ch == '6') {
-        // handle 6
-    } else if (ch == '7') {
-        // handle 7
-    } else if (ch == '8') {
-        // handle 8
-    } else if (ch == '9') {
-        // handle 9
-    } else if (ch == 'a' || ch == 'A') {
-        // handle A/a
-    } else if (ch == 'b' || ch == 'B') {
-        // handle B/b
-    } else if (ch == 'c' || ch == 'C') {
-        // handle C/c
-    } else if (ch == 'd' || ch == 'D') {
-        // handle D/d
-    } else if (ch == 'e' || ch == 'E') {
-        // handle E/e
-    } else if (ch == 'f' || ch == 'F') {
-        // handle F/f
-    } else {
-        return 1;
-    }
 
-    char c = (char) ch;
-    if (isalpha(c)) c = toupper(c);
-
-    if (set_char(array, c, cursor_position) != SET_SUCCESS)
-        return 1;
-
-    refresh();
-
-    return 0;
+position_t translate_to_hexwin(position_t pos) {
+    position_t new;
+    new.x = pos.x + pos.x / 2;
+    new.y = pos.y;
+    return new;
 }
 
-void wmove_cursor(WINDOW* window, int cursor_position) {
-    int y = cursor_position / (DATA_PER_ROW*2);
-    int x = cursor_position % (DATA_PER_ROW*2);
-    int amount_of_spaces = x / 2;
-    wmove(window, y, x + amount_of_spaces);
-    refresh();
-    wrefresh(window);
+position_t align_position(position_t pos, int maxx, int maxy) {
+    uint32_t x_m = pos.x / maxx;
+    uint32_t y_m = pos.y - maxy;
+    if (y_m < 0) y_m = 0;
+    position_t offset = {pos.x - maxx * x_m, y_m};
+    return offset;
 }
 
-void update_cursor_position(int* cursor_position) {
-    if (*cursor_position < 0)
-        *cursor_position += DATA_PER_ROW*2;
-    else if (*cursor_position >= HEX_WINDOW_BOTTOM_RIGHT)
-        *cursor_position -= DATA_PER_ROW*2;
+size_t position_to_size(position_t position, float x_unit, float y_unit) {
+    return (size_t) position.x * x_unit + (size_t) position.y * y_unit;
 }
 
-size_t get_file_position(int cursor_position, size_t current_file_position) {
-    size_t file_position = current_file_position;
 
-    if (cursor_position < 0 && file_position >= DATA_PER_ROW)
-        file_position -= DATA_PER_ROW;
-    else if (cursor_position >= HEX_WINDOW_BOTTOM_RIGHT)
-        file_position += DATA_PER_ROW;
-
-    return file_position;
-}
-
-void update_array(array_t* array, FILE* fptr, size_t file_position) {
-    size_t block_index = file_position / (BLOCK_SIZE / 2); //e.g. file_position/16
-    size_t start_file_position = file_position - file_position % (BLOCK_SIZE / 2);
-
-    while (block_index + HEX_ROWS >= array->amount_of_blocks) {
-        if (add_new_block(array) != BLOCK_ADD_SUCCESS) {
-            fprintf(stderr, "create new block error\n");
-            exit(1);
-        }
-    }
-
-    fseek(fptr, start_file_position, SEEK_SET);
-
-    char hex[33];
-    hex[32] = '\0';
-    for (int i = 0; i < HEX_ROWS; i++) {
-        if (array->array[block_index + i][0] != 0)
-            continue;
-        for (int j = 0; j < DATA_PER_ROW; j++) {
-            int c = fgetc(fptr);
-            if (c == EOF) c = 0;
-            char tmp[2];
-            char_to_hex(c, tmp);
-            strncpy(&hex[j*2], tmp, 2);
-        }
-        set_block(array, hex, block_index + i);
-    }
-}
-
-void map_arrow_key_binds(int ch, int* cursor_position) {
+int map_arrow_key_binds(int ch, position_t* offset) {
+    int retval = ISUCCESS;
     switch (ch) {
         case KEY_UP:
-            *cursor_position -= DATA_PER_ROW*2;
+            offset->y = -1;
             break;
         case KEY_DOWN:
-            *cursor_position += DATA_PER_ROW*2;
+            offset->y = 1;
             break;
         case KEY_LEFT:
-            *cursor_position -= 1;
+            offset->x = -1;
             break;
         case KEY_RIGHT:
-            *cursor_position += 1;
+            offset->y = 1;
+            break;
+        default:
+            retval = IERROR;
             break;
     }
+
+    return retval;
 }
 
-void wprint_adresses(WINDOW* window, size_t position) {
-    for (int i = 0; i < WINDOW_ROWS; i++) {
-        char hex_line[9];
-        size_t_to_hex4(position + i * DATA_PER_ROW, hex_line);
-        wprint_line(window, hex_line);
-    }
-    refresh();
-    wrefresh(window);
-}
 
-void wprint_separate_line(WINDOW* window) {
-    for (int i = 0; i < WINDOW_ROWS; i++) {
-        wprint_line(window, "|");
-    }
-    refresh();
-    wrefresh(window);
-}
 
-void print_file_data(WINDOW* window, size_t position, FILE* fprt) {
-    ;
-}
+// void print_file_data(WINDOW* window, size_t position, FILE* fprt) {
+//     ;
+// }
+// 
+// void wprint_file(WINDOW* window, array_t* hex_data, size_t position) {
+//     // the way to print
+//     //
+//     // hex hex hex
+//     // hex hex hex
+// 
+//     wmove(window, 0, 0);
+//     size_t block = position / (BLOCK_SIZE/2);
+// 
+//     for (size_t i = 0; i < HEX_ROWS; i++) {
+//         char* row_data = get_block(hex_data, block + i);
+//         for (size_t j = 0; j < DATA_PER_ROW; j++) {
+//             char a[3];
+//             a[0] = row_data[j*2];
+//             a[1] = row_data[j*2+1];
+//             a[2] = 0;
+//             wprintw(window, "%s ", a);
+//         }
+//         free(row_data);
+//     }
+// 
+//     refresh();
+//     wrefresh(window);
+// }
 
-void wprint_file(WINDOW* window, array_t* hex_data, size_t position) {
-    // the way to print
-    //
-    // hex hex hex
-    // hex hex hex
-
-    wmove(window, 0, 0);
-    size_t block = position / (BLOCK_SIZE/2);
-
-    for (size_t i = 0; i < HEX_ROWS; i++) {
-        char* row_data = get_block(hex_data, block + i);
-        for (size_t j = 0; j < DATA_PER_ROW; j++) {
-            char a[3];
-            a[0] = row_data[j*2];
-            a[1] = row_data[j*2+1];
-            a[2] = 0;
-            wprintw(window, "%s ", a);
-        }
-        free(row_data);
-    }
-
-    refresh();
-    wrefresh(window);
-}
-
-void wprint_line(WINDOW* window, char* data) {
-    int current_y;
-    int current_x;
-    getyx(window, current_y, current_x);
-    wprintw(window, "%s", data);
-    wmove(window, current_y+1, current_x);
-}
 
 void char_to_hex(int c, char hex[2]) {
     static const char digits[] = "0123456789ABCDEF";
