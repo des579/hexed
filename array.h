@@ -34,7 +34,7 @@ int array_setc(array_t* array, uint32_t index, uint8_t val);
 int array_expand(array_t* array, uint32_t target_size);
 
 // TODO
-int array_appendstr(array_t* array, uint8_t* vals);
+int array_appendstr(array_t* array, uint8_t* vals, uint32_t len);
 
 
 #endif // ARRAY_H

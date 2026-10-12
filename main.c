@@ -4,6 +4,9 @@
 
 #include "array.h"
 
+#define IERROR 0
+#define ISUCCESS 1
+
 #define ROWS_AMOUNT 21
 
 #define HEXWIN_BYTES_IN_ROW 8
@@ -133,8 +136,53 @@ static int update_offset_x(int offset_x, int* byte_part) {
     return ret;
 }
 
-static void _main() {
+static uint8_t get_new_ch(uint8_t ch, uint8_t curr_ch, int byte_part) {
+    uint8_t new_ch;
+    uint8_t hex_val = hex_value(ch);
+    if (byte_part == 0) { // least significant
+        new_ch = (curr_ch & 0xF0) | (hex_val);
+    } else { // most significant
+        new_ch = (curr_ch & 0x0F) | (hex_val << 4);
+    }
+
+    return new_ch;
+}
+
+static int write_file_to_array(array_t *array, FILE *fptr) {
+    uint8_t buffer[4096];
+    size_t bytes_read;
+
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), fptr)) > 0) {
+        if (array_appendstr(array, buffer, (uint32_t)bytes_read) == ARRAY_ACTION_IERROR) {
+            return IERROR;
+        }
+    }
+
+    if (ferror(fptr)) {
+        return IERROR;
+    }
+
+    return ISUCCESS;
+}
+
+// static int save_array_to_file(array_t* array, FILE* fptr) {
+// 
+// }
+
+static void _main(char* filepath) {
+    // open file if exists or create
+    FILE* fptr = fopen(filepath, "r+b");
+    if (!fptr)
+        fptr = fopen(filepath, "w+b");
+
+    // create array and write the file there
     array_t* hex_array = array_create();
+    if (write_file_to_array(hex_array, fptr) == IERROR) {
+        perror("ERROR writing file to array_t\n");
+        array_free(hex_array);
+        fclose(fptr);
+        return;
+    }
 
     // curses initialization
     initscr();
@@ -187,23 +235,9 @@ static void _main() {
             array_getc(hex_array, index, &curr_ch);
             wprintw(debug, "curr_ch: %02x\n", curr_ch);
 
-            uint8_t new_ch;
-            uint8_t hex_val = hex_value(ch);
-            if (byte_part == 0) { // least significant
-                new_ch = (curr_ch & 0xF0) | (hex_val);
-            } else { // most significant
-                new_ch = (curr_ch & 0x0F) | (hex_val << 4);
-            }
-
-            wprintw(debug, "setting new_ch: %02x at index: %d\n", new_ch, index);
-            int r = array_setc(hex_array, index, new_ch);
-            wprintw(debug, "setc res: %d\n", r);
-
-            byte_part++;
-            if (byte_part > 1) {
-                cursor_position.x++;
-                byte_part = 0;
-            }
+            uint8_t new_ch = get_new_ch(ch, curr_ch, byte_part);
+            array_setc(hex_array, index, new_ch);
+            cursor_position.x += update_offset_x(1, &byte_part);
         } 
 
         // clear windows before doing something
@@ -226,20 +260,21 @@ static void _main() {
         wrefresh(debug);
     }
 
-    // update the cursor position x by 1
-    // if arrow keys, update the position respectively
-    //
-    // draw all the chages
 
     // free everything
     endwin();
     delwin(hexwin);
     array_free(hex_array);
+    fclose(fptr);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        printf("usage 'hexed <FILENAME>/<OPTIONS>\nuse 'hexed --help' for additional info\n");
+        return 1;
+    }
 
-    _main();
+    _main(argv[1]);
 
     return 0;
 }

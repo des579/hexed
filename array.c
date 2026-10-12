@@ -109,6 +109,8 @@ int array_getc(array_t* array, uint32_t index, uint8_t* buffer) {
 }
 
 int array_expand(array_t *array, uint32_t target_size) {
+    if (target_size <= array->size)
+        return ARRAY_ACTION_INOTHING;
     if (target_size <= array->max_size) {
         array->size = target_size;
         return ARRAY_ACTION_INOTHING;
@@ -124,4 +126,15 @@ int array_expand(array_t *array, uint32_t target_size) {
     return ARRAY_ACTION_ISUCCESS;
 }
 
+int array_appendstr(array_t* array, uint8_t* vals, uint32_t size) {
+    uint32_t prev_size = array->size;
+    if (array_expand(array, array->size + size) == ARRAY_ACTION_IERROR)
+        return ARRAY_ACTION_IERROR;
+
+    for (uint32_t i = 0; i < size; i++) {
+        array_setc(array, i + prev_size, vals[i]);
+    }
+
+    return ARRAY_ACTION_ISUCCESS;
+}
 
