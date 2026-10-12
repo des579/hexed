@@ -3,42 +3,37 @@
 
 // made for strings only
 
-#define BLOCK_SIZE 32
+#include <stdint.h>
 
-#define APPEND_SUCCESS 0
-#define APPEND_ERROR 1
+#define ARRAY_BLOCK_SIZE 128
 
-#define BLOCK_ADD_SUCCESS 0
-#define BLOCK_ADD_ERROR 1
+#define ARRAY_ACTION_ISUCCESS 0
+#define ARRAY_ACTION_IERROR 1
+#define ARRAY_ACTION_INOTHING 2
 
-#define BLOCK_SET_SUCCESS 0
-#define BLOCK_SET_ERROR 1
-
-#define SET_SUCCESS 0
-#define SET_ERROR 1
 
 typedef struct {
-    size_t size;
-    size_t amount_of_blocks;
-    size_t max_size;
-    char **array;
+    // effective size of the array
+    uint32_t size;
+    uint32_t amount_of_blocks;
+
+    // maximum size of the array
+    // a flag that shows whether it is necessary to allocate another block or no
+    uint32_t max_size;
+    uint8_t **array;
 } array_t;
 
 array_t* array_create();
-
-int array_append_ch(array_t* array, char data);
-
-int array_setc(array_t* array, char c, size_t index);
-int array_set_block(array_t* array, char *new_block, size_t block_index);
-
-int array_add_new_block(array_t* array);
-
-char array_getc(array_t* array, size_t position);
-char* array_getstr(array_t* array, size_t position);
-char* array_get_block(array_t* array, size_t block);
-
 void array_free(array_t* array);
 
+int array_append(array_t* array, uint8_t val);
+int array_setcyx(array_t* array, uint32_t row, uint32_t col, uint8_t val);
+int array_getcyx(array_t* array, uint32_t row, uint32_t col, uint8_t* buffer);
+int array_getc(array_t* array, uint32_t index, uint8_t* buffer);
+int array_expand(array_t* array, uint32_t target_size);
+
+// TODO
+int array_appendstr(array_t* array, uint8_t* vals);
 
 
 #endif // ARRAY_H

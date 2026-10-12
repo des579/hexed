@@ -1,225 +1,187 @@
 #include <stdio.h>
-
-#include <stdlib.h>
 #include <curses.h>
-#include <stdbool.h>
-#include <string.h>
 #include <ctype.h>
 
 #include "array.h"
-// #include "file.h"
-#include "defines.h"
 
-// global macro (used for every window)
-#define ROW_AMOUNT 21
+#define ROWS_AMOUNT 21
 
-// hexadecimal window
-#define HEXBYTESWIN_HEX_IN_ROW 8
-#define HEXBYTESWIN_ROW_SIZE (HEXBYTESWIN_HEX_IN_ROW * 2 + HEXBYTESWIN_HEX_IN_ROW -1)
+#define HEXWIN_BYTES_IN_ROW 8
+#define HEXWIN_COLS_AMOUNT (HEXWIN_BYTES_IN_ROW * 2 + HEXWIN_BYTES_IN_ROW - 1)
 
-// window representing current amount of bytes (the left window)
-// will use uint64_t to represent the size
-#define SIZEWIN_ROW_SIZE (8*2) // 8*2 hex amount of uint64_t
-
-// vertical line
-#define VERTICALWIN_ROW_SIZE 1 // just the character '|'
-
-// offsets for each window
-#define SIZEWIN_OFFSET 0
-#define VERTICALWIN_OFFSET_LEFT (SIZEWIN_ROW_SIZE + SIZEWIN_OFFSET + 1)
-#define HEXBYTESWIN_OFFSET (VERTICALWIN_OFFSET_LEFT + VERTICALWIN_ROW_SIZE + 1)
-#define VERTICALWIN_OFFSET_RIGHT (HEXBYTESWIN_OFFSET + HEXBYTESWIN_ROW_SIZE + 1)
-
-
+#define BYTE_HEX(b, lp, bp)                                   \
+    do {                                                      \
+        uint8_t byte_hex_v_ = (uint8_t) (b);                  \
+        *(bp) = "0123456789ABCDEF"[byte_hex_v_ >> 4];         \
+        *(lp) = "0123456789ABCDEF"[byte_hex_v_ & 0x0F];       \
+    } while (0)
 
 typedef struct {
     int x;
     int y;
 } position_t;
 
-position_t align_position(position_t pos, int maxx, int maxy);
-position_t translate_to_hexwin(position_t pos);
+static void draw_hexwin(WINDOW* hexwin, array_t* hex_array, uint32_t line) {
+    // draw byte then space
+    uint32_t byte_index = 0;
+    for (int row = 0; row < ROWS_AMOUNT; row++) {
+//         int count = 0;
+        for (int col = 0; col < HEXWIN_BYTES_IN_ROW; col++) {
+            uint8_t byte = 0;
+            int res = array_getc(hex_array, byte_index, &byte);
 
-int map_arrow_key_binds(int ch, position_t* offset);
-size_t position_to_size(position_t position, float x_unit, float y_unit);
+            // i pick a hex and print it!
+            char l, b;
+            BYTE_HEX(byte, &l, &b);
+            wprintw(hexwin, "%c%c", l, b);
+            // except the last byte
+            if (col != HEXWIN_BYTES_IN_ROW - 1)
+                wprintw(hexwin, " ");
 
-void update_array(array_t* array, FILE* fptr, size_t file_position);
-void char_to_hex(int c, char hex[2]);
-void size_t_to_hex4(size_t value, char output[9]);
-
-
-int main(int argc, char** argv) {
-    if (argc != 2) {
-        printf("Usage: 'hexed <filename>/<options>'\nSee 'hexed --help' for help\n");
-        return 0;
+            byte_index++;
+        }
     }
+    wrefresh(hexwin);
+}
 
-    
-    char* filename = argv[1];
-    FILE* fptr = fopen(filename, "r+b");
-    if (!fptr)
-        fptr = fopen(filename, "w+b");
-
-
-    // array to save changes
-    array_t* hex_data = array_create();
-
-    // curses initialization shit
-    initscr();
-    keypad(stdscr, TRUE);
-    noecho();
-    cbreak();
-
-    // windows
-    WINDOW *hexwin = newwin(HEXBYTESWIN_ROW_SIZE, ROW_AMOUNT, 0, HEXBYTESWIN_OFFSET);
-    WINDOW *vertwin_left = newwin(VERTICALWIN_ROW_SIZE, ROW_AMOUNT, 0, VERTICALWIN_OFFSET_LEFT);
-    WINDOW *vertwin_right = newwin(VERTICALWIN_ROW_SIZE, ROW_AMOUNT, 0, VERTICALWIN_OFFSET_RIGHT);
-    WINDOW *sizewin = newwin(SIZEWIN_ROW_SIZE, ROW_AMOUNT, 0, SIZEWIN_OFFSET);
-
-
-    // the screen cursor position and global cursor position
-    position_t cursor_position = {0, 0};
-    position_t global_cursor_position = {0, 0};
-    // array buffer and file position
-    size_t file_position = 0;
-
-    int ch = 0;
-    do {
-        position_t new_position_offset; // used for map_arrow_key_binds
-
-        // if hexadecimal, put the byte there
-        // translate position_t to index on array, update the array
-        // if arrow, change position depending on what arrow is it
-
-        // hexadecimal
-        if (isxdigit((unsigned char) ch)) {
-            if (isalpha(ch))
-                ch = toupper(ch);
-            // setting the char to array
-            size_t index = position_to_size(cursor_position, 0.5, 1);
-            array_setc(hex_data, ch, index);
-
-            cursor_position.x++;
-        }
-
-        // arrows
-        else if (map_arrow_key_binds(ch, &new_position_offset) == ISUCCESS) {
-            // change the cursor_position
-            cursor_position.x += new_position_offset.x;
-            cursor_position.y += new_position_offset.y;
-        }
-        
-        // aligning the position
-        
-        // translate to global
-
-
-//         wmove_cursor(hexwin, cursor_position);
-    } while ((ch = getch()) != 'q');
-
-
-    delwin(hexwin);
-    delwin(vertwin_right);
-    delwin(vertwin_left);
-    delwin(sizewin);
-
-    endwin();
-    clear();
-//     save_array(hex_data, fptr);
-    array_free(hex_data);
-    if (fptr)
-        fclose(fptr);
+static int is_arrow(int ch) {
+    switch (ch) {
+        case KEY_UP:
+        case KEY_DOWN:
+        case KEY_LEFT:
+        case KEY_RIGHT:
+            return 1;
+    }
 
     return 0;
 }
 
+static position_t align_position(position_t pos, int maxx, int maxy, uint32_t *offset) {
+    if (pos.x >= 0 && pos.x < maxx && pos.y >= 0 && pos.y < maxy) {
+        *offset = 0;
+        return pos;
+    }
 
-position_t translate_to_hexwin(position_t pos) {
-    position_t new;
-    new.x = pos.x + pos.x / 2;
-    new.y = pos.y;
-    return new;
+    int wraps = pos.x / maxx;
+    int rem = pos.x % maxx;
+
+    if (rem < 0) {
+        rem += maxx;
+        wraps--;
+    }
+
+    pos.x = rem;
+    pos.y -= wraps;
+
+    if (pos.y < 0) {
+        *offset = (uint32_t)(-(int64_t)pos.y);
+        pos.y = 0;
+    } else if (pos.y >= maxy) {
+        *offset = (uint32_t)(pos.y - (maxy - 1));
+        pos.y = maxy - 1;
+    }
+
+    return pos;
 }
 
-position_t align_position(position_t pos, int maxx, int maxy) {
-    uint32_t x_m = pos.x / maxx;
-    uint32_t y_m = pos.y - maxy;
-    if (y_m < 0) y_m = 0;
-    position_t offset = {pos.x - maxx * x_m, y_m};
-    return offset;
-}
+static position_t get_arrow_key_offset(int ch) {
+    position_t offset = { .x = 0, .y = 0 };
 
-size_t position_to_size(position_t position, float x_unit, float y_unit) {
-    return (size_t) position.x * x_unit + (size_t) position.y * y_unit;
-}
-
-
-int map_arrow_key_binds(int ch, position_t* offset) {
-    int retval = ISUCCESS;
     switch (ch) {
-        case KEY_UP:
-            offset->y = -1;
-            break;
-        case KEY_DOWN:
-            offset->y = 1;
+        case KEY_RIGHT:
+            offset.x = 1;
             break;
         case KEY_LEFT:
-            offset->x = -1;
+            offset.x = -1;
             break;
-        case KEY_RIGHT:
-            offset->y = 1;
+        case KEY_UP:
+            offset.y = -1;
             break;
-        default:
-            retval = IERROR;
+        case KEY_DOWN:
+            offset.y = 1;
             break;
     }
 
-    return retval;
+    return offset;
 }
 
+static void _main() {
+    array_t* hex_array = array_create();
+
+    // curses initialization
+    initscr();
+    keypad(stdscr, TRUE);
+    noecho();
+    cbreak();
+    
+    WINDOW* hexwin = newwin(ROWS_AMOUNT, HEXWIN_COLS_AMOUNT, 0, 0);
+
+    // draw every window first
+    draw_hexwin(hexwin, hex_array, 0);
 
 
-// void print_file_data(WINDOW* window, size_t position, FILE* fprt) {
-//     ;
-// }
-// 
-// void wprint_file(WINDOW* window, array_t* hex_data, size_t position) {
-//     // the way to print
-//     //
-//     // hex hex hex
-//     // hex hex hex
-// 
-//     wmove(window, 0, 0);
-//     size_t block = position / (BLOCK_SIZE/2);
-// 
-//     for (size_t i = 0; i < HEX_ROWS; i++) {
-//         char* row_data = get_block(hex_data, block + i);
-//         for (size_t j = 0; j < DATA_PER_ROW; j++) {
-//             char a[3];
-//             a[0] = row_data[j*2];
-//             a[1] = row_data[j*2+1];
-//             a[2] = 0;
-//             wprintw(window, "%s ", a);
-//         }
-//         free(row_data);
-//     }
-// 
-//     refresh();
-//     wrefresh(window);
-// }
+    // cursor position on hexwin
+    // byte part of the byte that cursor position shows
+    // shows the byte and its part (least of most significant)
+    position_t cursor_position = {0, 0};
+    uint8_t byte_part = 0; // 0 means least
+                           // 1 means most
+
+    // offset from the beginning of the file to top column of screen (hexwin)
+    uint32_t column_offset = 0;
+
+    int ch;
+    while ((ch = getch()) != 'q') {
+        // if ch is hexadecimal, save it to array
+        uint32_t index = (column_offset + cursor_position.y) * ARRAY_BLOCK_SIZE + cursor_position.x;
+        if (isxdigit(ch)) {
+            // TODO: error handling
+            array_expand(hex_array, index);
+            
+            // after array_expand there should be enough space to get the next char
+            uint8_t curr_ch;
+            array_getc(hex_array, index, &curr_ch);
+
+            byte_part++;
+            if (byte_part > 1) {
+                cursor_position.x++;
+                byte_part = 0;
+            }
+        } 
+        // if ch is arrow keys, move it move it
+        else if (is_arrow(ch)) {
+            position_t offset = get_arrow_key_offset(ch);
+            cursor_position.x += offset.x;
+            cursor_position.y += offset.y;
+        }
 
 
-void char_to_hex(int c, char hex[2]) {
-    static const char digits[] = "0123456789ABCDEF";
-    hex[0] = digits[(c >> 4) & 0xF];
-    hex[1] = digits[c & 0xF];
+        // align position
+        cursor_position = align_position(cursor_position, 
+                HEXWIN_BYTES_IN_ROW, ROWS_AMOUNT, &column_offset);
+
+        // draw any changes
+        draw_hexwin(hexwin, hex_array, column_offset);
+        wrefresh(hexwin);
+    }
+
+    // update the cursor position x by 1
+    // if arrow keys, update the position respectively
+    //
+    // draw all the chages
+
+    // free everything
+    endwin();
+    delwin(hexwin);
+    array_free(hex_array);
 }
 
-void size_t_to_hex4(size_t value, char output[9]) {
-    uint32_t truncated = (uint32_t)(value & 0xFFFFFFFF);
-    sprintf(output, "%08X", truncated);
-}
+int main() {
 
+    _main();
+
+    return 0;
+}
 
 
 
