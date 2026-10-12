@@ -23,9 +23,8 @@ typedef struct {
 
 static void draw_hexwin(WINDOW* hexwin, array_t* hex_array, uint32_t line) {
     // draw byte then space
-    uint32_t byte_index = 0;
+    uint32_t byte_index = line * HEXWIN_BYTES_IN_ROW;
     for (int row = 0; row < ROWS_AMOUNT; row++) {
-//         int count = 0;
         for (int col = 0; col < HEXWIN_BYTES_IN_ROW; col++) {
             uint8_t byte = 0;
             int res = array_getc(hex_array, byte_index, &byte);
@@ -59,7 +58,7 @@ static int is_arrow(int ch) {
     return 0;
 }
 
-static position_t align_position(position_t pos, int maxx, int maxy, uint32_t *offset) {
+static position_t align_position(position_t pos, int maxx, int maxy, int *offset) {
     if (pos.x >= 0 && pos.x < maxx && pos.y >= 0 && pos.y < maxy) {
         *offset = 0;
         return pos;
@@ -115,20 +114,42 @@ static int hex_value(int ch) {
     return -1;
 }
 
+// TODO: change if possible
+// stupid func, but works for now
+static int update_offset_x(int offset_x, int* byte_part) {
+    *byte_part += offset_x;
+    int ret = 0;
+
+    while (*byte_part >= 2) {
+        ret++;
+        *byte_part -= 2;
+    }
+
+    while (*byte_part <= -2) {
+        ret--;
+        *byte_part += 2;
+    }
+
+    return ret;
+}
+
 static void _main() {
     array_t* hex_array = array_create();
 
     // curses initialization
     initscr();
-    keypad(stdscr, TRUE);
     noecho();
     cbreak();
     
+    // windows
     WINDOW* hexwin = newwin(ROWS_AMOUNT, HEXWIN_COLS_AMOUNT, 0, 0);
     WINDOW* debug = newwin(ROWS_AMOUNT, 40, 0, 30);
     WINDOW* input = newwin(1, 1, 1000, 1000);
     wclear(debug);
     wclear(hexwin);
+
+    // specifically this goes after windows definitions
+    keypad(input, TRUE);
 
     // draw every window first
     draw_hexwin(hexwin, hex_array, 0);
@@ -137,25 +158,34 @@ static void _main() {
     // byte part of the byte that cursor position shows
     // shows the byte and its part (least of most significant)
     position_t cursor_position = {0, 0};
-    uint8_t byte_part = 0; // 0 means least
-                           // 1 means most
+    int byte_part = 0;  // 0 means least
+                        // 1 means most
 
     // offset from the beginning of the file to top column of screen (hexwin)
-    uint32_t column_offset = 0;
+    int column_offset = 0;
 
     int ch;
     while ((ch = wgetch(input)) != 'q') {
         wclear(debug);
         // if ch is hexadecimal, save it to array
-        uint32_t index = (column_offset + cursor_position.y) * ARRAY_BLOCK_SIZE + cursor_position.x;
-        if (isxdigit(ch)) {
+        uint32_t index = (column_offset + cursor_position.y) * HEXWIN_BYTES_IN_ROW + cursor_position.x;
+        // if ch is arrow keys, move it move it
+        if (is_arrow(ch)) {
+            wprintw(debug, "is_arrow\n");
+            position_t offset = get_arrow_key_offset(ch);
+            cursor_position.x += update_offset_x(offset.x, &byte_part);
+            cursor_position.y += offset.y;
+        }
+        else if (isxdigit(ch) != 0) {
+            wprintw(debug, "isxdigit\n");
             // TODO: error handling
-            int ae_res = array_expand(hex_array, index);
+            int ae_res = array_expand(hex_array, index + 1);
             wprintw(debug, "array_expand result: %d\n", ae_res);
             
             // after array_expand there should be enough space to get the next char
             uint8_t curr_ch;
             array_getc(hex_array, index, &curr_ch);
+            wprintw(debug, "curr_ch: %02x\n", curr_ch);
 
             uint8_t new_ch;
             uint8_t hex_val = hex_value(ch);
@@ -165,7 +195,7 @@ static void _main() {
                 new_ch = (curr_ch & 0x0F) | (hex_val << 4);
             }
 
-            wprintw(debug, "setting new_ch: %d at index: %d\n", new_ch, index);
+            wprintw(debug, "setting new_ch: %02x at index: %d\n", new_ch, index);
             int r = array_setc(hex_array, index, new_ch);
             wprintw(debug, "setc res: %d\n", r);
 
@@ -175,23 +205,17 @@ static void _main() {
                 byte_part = 0;
             }
         } 
-        // if ch is arrow keys, move it move it
-        else if (is_arrow(ch)) {
-            position_t offset = get_arrow_key_offset(ch);
-            byte_part += offset.x;
-            if (byte_part > 1) {
-                cursor_position.x++;
-                byte_part = 0;
-            }
-            cursor_position.y += offset.y;
-        }
 
         // clear windows before doing something
         wclear(hexwin);
 
         // align position
+        int tmp_column_offset = 0;
         cursor_position = align_position(cursor_position, 
-                HEXWIN_BYTES_IN_ROW, ROWS_AMOUNT, &column_offset);
+                HEXWIN_BYTES_IN_ROW, ROWS_AMOUNT, &tmp_column_offset);
+        column_offset += tmp_column_offset;
+        if (column_offset < 0)
+            column_offset = 0;
 
         // draw any changes
         draw_hexwin(hexwin, hex_array, column_offset);
