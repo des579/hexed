@@ -30,6 +30,7 @@ int array_append(array_t* array, uint8_t val);
 int array_setcyx(array_t* array, uint32_t row, uint32_t col, uint8_t val);
 int array_getcyx(array_t* array, uint32_t row, uint32_t col, uint8_t* buffer);
 int array_getc(array_t* array, uint32_t index, uint8_t* buffer);
+int array_setc(array_t* array, uint32_t index, uint8_t val);
 int array_expand(array_t* array, uint32_t target_size);
 
 // TODO

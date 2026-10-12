@@ -84,6 +84,19 @@ int array_getcyx(array_t* array, uint32_t row, uint32_t col, uint8_t* buffer) {
     return ARRAY_ACTION_ISUCCESS;
 }
 
+int array_setc(array_t* array, uint32_t index, uint8_t val) {
+    if (index >= array->max_size)
+        return ARRAY_ACTION_IERROR;
+    uint32_t row = index / ARRAY_BLOCK_SIZE;
+    uint32_t col = index % ARRAY_BLOCK_SIZE;
+
+    array->array[row][col] = val;
+    if (index > array->size)
+        array->size = index;
+
+    return ARRAY_ACTION_ISUCCESS;
+}
+
 int array_getc(array_t* array, uint32_t index, uint8_t* buffer) {
     if (index >= array->size)
         return ARRAY_ACTION_IERROR;
